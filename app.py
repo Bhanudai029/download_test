@@ -16,8 +16,9 @@ import threading
 app = Flask(__name__)
 CORS(app)
 
-# Proxy configuration
-PROXY = "http://144.125.164.158:8080"
+# Proxy configuration - try without proxy first on Render
+# Set to None to try direct connection, or use proxy if needed
+PROXY = os.environ.get('PROXY_URL', None)  # Can set via environment variable
 
 # Temp storage for downloads
 DOWNLOADS = {}
@@ -44,7 +45,7 @@ cleanup_thread = threading.Thread(target=cleanup_old_files, daemon=True)
 cleanup_thread.start()
 
 def get_ydl_opts(format_type='mp3'):
-    """Get yt-dlp options with proxy"""
+    """Get yt-dlp options"""
     opts = {
         'format': 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best',
         'quiet': True,
@@ -55,10 +56,18 @@ def get_ydl_opts(format_type='mp3'):
         'socket_timeout': 60,
         'retries': 5,
         'postprocessors': [],
-        'proxy': PROXY,
     }
-    os.environ['HTTP_PROXY'] = PROXY
-    os.environ['HTTPS_PROXY'] = PROXY
+    
+    # Only use proxy if configured
+    if PROXY:
+        opts['proxy'] = PROXY
+        os.environ['HTTP_PROXY'] = PROXY
+        os.environ['HTTPS_PROXY'] = PROXY
+    else:
+        # Clear any proxy env vars for direct connection
+        for var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
+            os.environ.pop(var, None)
+    
     return opts
 
 @app.route('/')
@@ -77,29 +86,19 @@ def index():
 
 @app.route('/test')
 def test_connection():
-    """Test proxy and YouTube connectivity"""
-    import socket
-    results = {'proxy': PROXY, 'proxy_reachable': False, 'youtube_test': 'not tested'}
+    """Test YouTube connectivity"""
+    results = {'proxy': PROXY, 'youtube_test': 'not tested'}
     
+    # Test YouTube access directly
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(5)
-        result = sock.connect_ex(('144.125.164.158', 8080))
-        sock.close()
-        results['proxy_reachable'] = (result == 0)
+        ydl_opts = get_ydl_opts()
+        ydl_opts['skip_download'] = True
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info('https://www.youtube.com/watch?v=dQw4w9WgXcQ', download=False)
+            results['youtube_test'] = 'success'
+            results['test_video'] = info.get('title', 'Unknown')
     except Exception as e:
-        results['proxy_error'] = str(e)
-    
-    if results['proxy_reachable']:
-        try:
-            ydl_opts = get_ydl_opts()
-            ydl_opts['skip_download'] = True
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info('https://www.youtube.com/watch?v=dQw4w9WgXcQ', download=False)
-                results['youtube_test'] = 'success'
-                results['test_video'] = info.get('title', 'Unknown')
-        except Exception as e:
-            results['youtube_test'] = f'failed: {str(e)}'
+        results['youtube_test'] = f'failed: {str(e)}'
     
     return jsonify(results)
 
