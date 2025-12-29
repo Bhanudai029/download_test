@@ -16,9 +16,8 @@ import threading
 app = Flask(__name__)
 CORS(app)
 
-# Proxy configuration - try without proxy first on Render
-# Set to None to try direct connection, or use proxy if needed
-PROXY = os.environ.get('PROXY_URL', None)  # Can set via environment variable
+# Proxy configuration
+PROXY = "http://144.125.164.158:8080"
 
 # Temp storage for downloads
 DOWNLOADS = {}
@@ -45,7 +44,13 @@ cleanup_thread = threading.Thread(target=cleanup_old_files, daemon=True)
 cleanup_thread.start()
 
 def get_ydl_opts(format_type='mp3'):
-    """Get yt-dlp options"""
+    """Get yt-dlp options with proxy"""
+    # Set proxy environment variables
+    os.environ['HTTP_PROXY'] = PROXY
+    os.environ['HTTPS_PROXY'] = PROXY
+    os.environ['http_proxy'] = PROXY
+    os.environ['https_proxy'] = PROXY
+    
     opts = {
         'format': 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best',
         'quiet': True,
@@ -56,17 +61,13 @@ def get_ydl_opts(format_type='mp3'):
         'socket_timeout': 60,
         'retries': 5,
         'postprocessors': [],
+        'proxy': PROXY,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web'],
+            }
+        },
     }
-    
-    # Only use proxy if configured
-    if PROXY:
-        opts['proxy'] = PROXY
-        os.environ['HTTP_PROXY'] = PROXY
-        os.environ['HTTPS_PROXY'] = PROXY
-    else:
-        # Clear any proxy env vars for direct connection
-        for var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
-            os.environ.pop(var, None)
     
     return opts
 
